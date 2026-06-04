@@ -1,0 +1,24 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+# 屏蔽所有Docker镜像压缩包（核心！）
+*.tar
+*.tar.gz
+*.zip
+*.gz
+
+# 屏蔽IDE/编译文件（Java项目必备）
+.idea/
+*.iml
+target/
+*.log
+
+# 屏蔽系统垃圾文件
+.DS_Store

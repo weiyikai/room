@@ -1,0 +1,13 @@
+django
+django-cors-headers
+django-smart-selects
+djangorestframework
+openpyxl
+django-import-export
+django-redis
+pillow
+django-simpleui
+nacos-sdk-python==2.0.9
+gunicorn
+python-dotenv
+pyyaml
