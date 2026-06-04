@@ -1,0 +1,24 @@
+[project]
+name = "docker-deploy"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "django",
+    "django-cors-headers",
+    "django-smart-selects",
+    "djangorestframework",
+    "openpyxl",
+    "django-import-export",
+    "django-redis",
+    "pillow",
+    "django-simpleui",
+    "nacos-sdk-python==2.0.9",
+    "gunicorn",
+    "python-dotenv",
+    "pyyaml",
+]
+
+[tool.uv]
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
