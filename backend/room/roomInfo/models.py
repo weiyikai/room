@@ -184,3 +184,74 @@ class RoomInfo(models.Model):
 
     def __str__(self):
         return self.room_name
+
+
+# ====================== 机房巡检轨迹管理 ======================
+class InspectionSession(models.Model):
+    """
+    巡检会话：一次完整的机房巡检过程
+    管理员从开始巡检到结束巡检，期间产生的所有定位点归属于同一个 session
+    """
+    admin_user = models.ForeignKey(
+        'login.RoomAdminUser',
+        on_delete=models.CASCADE,
+        related_name='inspection_sessions',
+        verbose_name="巡检管理员"
+    )
+    station = models.ForeignKey(
+        DictItem,
+        on_delete=models.PROTECT,
+        limit_choices_to={"type__code": "STATION"},
+        related_name="inspection_sessions",
+        verbose_name="巡检局站"
+    )
+    start_time = models.DateTimeField(verbose_name="开始时间")
+    end_time = models.DateTimeField(null=True, blank=True, verbose_name="结束时间")
+    status = models.CharField(
+        max_length=20,
+        choices=[('active', '巡检中'), ('completed', '已完成')],
+        default='active',
+        verbose_name="状态"
+    )
+    notes = models.TextField(blank=True, null=True, verbose_name="备注")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="创建时间")
+
+    class Meta:
+        verbose_name = "巡检会话"
+        verbose_name_plural = "巡检会话列表"
+        ordering = ["-start_time"]
+
+    def __str__(self):
+        station_name = self.station.label if self.station else "未知局站"
+        admin_name = self.admin_user.name or self.admin_user.phone
+        return f"{admin_name} - {station_name} ({self.start_time.strftime('%Y-%m-%d %H:%M')})"
+
+    @property
+    def point_count(self):
+        return self.track_points.count()
+
+
+class InspectionTrackPoint(models.Model):
+    """
+    巡检轨迹点：管理员在巡检过程中上报的单个定位点
+    """
+    session = models.ForeignKey(
+        InspectionSession,
+        on_delete=models.CASCADE,
+        related_name='track_points',
+        verbose_name="所属巡检会话"
+    )
+    latitude = models.FloatField(verbose_name="纬度")
+    longitude = models.FloatField(verbose_name="经度")
+    accuracy = models.FloatField(null=True, blank=True, verbose_name="定位精度(m)")
+    altitude = models.FloatField(null=True, blank=True, verbose_name="海拔(m)")
+    timestamp = models.DateTimeField(verbose_name="定位时间")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="记录时间")
+
+    class Meta:
+        verbose_name = "巡检轨迹点"
+        verbose_name_plural = "巡检轨迹点列表"
+        ordering = ["timestamp"]
+
+    def __str__(self):
+        return f"({self.latitude}, {self.longitude}) @ {self.timestamp.strftime('%H:%M:%S')}"

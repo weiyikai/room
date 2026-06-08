@@ -1,0 +1,35 @@
+# ====================== 基础配置 ======================
+SECRET_KEY: "django-insecure-z!-t31+1i1mv+19i@tnkgi&#hd3f7=^6&7lepc%-6dbe@iz26d"
+DEBUG: false
+MAIN_HOST: "http://localhost"
+HOSTS: "http://localhost,http://127.0.0.1"
+ALLOWED_HOSTS: ["127.0.0.1","4b34c4ca.r28.cpolar.top"]
+# ALLOWED_HOSTS: ["*"]
+TIME_ZONE: "Asia/Shanghai"
+
+# ====================== CORS 配置 ======================
+CORS_ALLOW_ALL_ORIGINS: true
+CORS_ALLOW_CREDENTIALS: true
+
+# ====================== 数据库配置 ======================
+# 启用 Postgres 则填写 POSTGRES_HOST，为空则用 SQLite
+POSTGRES_HOST: ""
+POSTGRES_DB: "postgres"
+POSTGRES_USER: "postgres"
+POSTGRES_PASSWORD: ""
+
+# ====================== 缓存 Redis 配置 ======================
+REDIS_ENABLE: false
+REDIS_LOCATION: "redis://0.0.0.0:6379/1"
+
+# ====================== 文件上传 ======================
+DATA_UPLOAD_MAX_MEMORY_SIZE: 52428800
+FILE_UPLOAD_MAX_MEMORY_SIZE: 52428800
+
+# ====================== SimpleUI ======================
+SIMPLEUI_LOGIN_PC: false
+SIMPLEUI_HOME_INFO: false
+SIMPLEUI_HOME_ANALYSIS: false
+SIMPLEUI_DEFAULT_TITLE: "动环安全评估管理系统"
+SIMPLEUI_DEFAULT_HEADER: "动环安全评估管理系统"
+SIMPLEUI_THEME: "blue"

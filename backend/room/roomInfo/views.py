@@ -12,6 +12,11 @@ from rest_framework.parsers import MultiPartParser, FormParser
 
 import os
 from django.conf import settings
+from django.http import HttpResponse
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
+from io import BytesIO
+from datetime import datetime
 from .models import RoomInfo
 from .serializers import RoomInfoSerializer
 
@@ -193,3 +198,285 @@ class RoomInfoSaveView(APIView):
             "msg": "保存成功",
             "data": serializer.data
         })
+
+
+# ====================== 机房巡检轨迹管理接口 ======================
+from datetime import datetime
+from .models import InspectionSession, InspectionTrackPoint
+from .serializers import (
+    InspectionSessionListSerializer,
+    InspectionSessionDetailSerializer,
+    InspectionLocationUploadSerializer,
+    InspectionBatchLocationUploadSerializer,
+    InspectionSessionStartSerializer,
+    InspectionSessionEndSerializer,
+)
+from login.models import RoomAdminUser
+
+
+class InspectionSessionStartView(APIView):
+    """开始巡检：创建巡检会话"""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = InspectionSessionStartSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"code": 400, "msg": "参数错误", "errors": serializer.errors})
+
+        station_id = serializer.validated_data['station_id']
+        admin_id = serializer.validated_data['admin_id']
+
+        # 校验管理员是否存在
+        try:
+            admin_user = RoomAdminUser.objects.get(id=admin_id)
+        except RoomAdminUser.DoesNotExist:
+            return Response({"code": 400, "msg": "管理员不存在"})
+
+        # 校验局站是否存在
+        try:
+            station = DictItem.objects.get(id=station_id, type__code="STATION")
+        except DictItem.DoesNotExist:
+            return Response({"code": 400, "msg": "局站不存在"})
+
+        # 检查是否有未结束的巡检会话
+        active_session = InspectionSession.objects.filter(
+            admin_user=admin_user, status='active'
+        ).first()
+        if active_session:
+            return Response({
+                "code": 400,
+                "msg": "当前已有进行中的巡检会话，请先结束再开始新巡检",
+                "data": {"session_id": active_session.id}
+            })
+
+        # 创建巡检会话
+        session = InspectionSession.objects.create(
+            admin_user=admin_user,
+            station=station,
+            start_time=datetime.now(),
+            status='active'
+        )
+
+        return Response({
+            "code": 200,
+            "msg": "巡检开始",
+            "data": {
+                "session_id": session.id,
+                "start_time": session.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        })
+
+
+class InspectionSessionEndView(APIView):
+    """结束巡检"""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = InspectionSessionEndSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"code": 400, "msg": "参数错误"})
+
+        session_id = serializer.validated_data['session_id']
+
+        try:
+            session = InspectionSession.objects.get(id=session_id)
+        except InspectionSession.DoesNotExist:
+            return Response({"code": 400, "msg": "巡检会话不存在"})
+
+        if session.status == 'completed':
+            return Response({"code": 400, "msg": "该巡检已结束"})
+
+        session.status = 'completed'
+        session.end_time = datetime.now()
+        session.save()
+
+        return Response({
+            "code": 200,
+            "msg": "巡检结束",
+            "data": {
+                "session_id": session.id,
+                "point_count": session.track_points.count(),
+                "start_time": session.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+                "end_time": session.end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        })
+
+
+class InspectionLocationUploadView(APIView):
+    """上报单个定位点"""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = InspectionLocationUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"code": 400, "msg": "参数错误", "errors": serializer.errors})
+
+        data = serializer.validated_data
+
+        try:
+            session = InspectionSession.objects.get(id=data['session_id'])
+        except InspectionSession.DoesNotExist:
+            return Response({"code": 400, "msg": "巡检会话不存在"})
+
+        if session.status != 'active':
+            return Response({"code": 400, "msg": "巡检会话已结束，无法上报位置"})
+
+        point = InspectionTrackPoint.objects.create(
+            session=session,
+            latitude=data['latitude'],
+            longitude=data['longitude'],
+            accuracy=data.get('accuracy'),
+            altitude=data.get('altitude'),
+            timestamp=data['timestamp']
+        )
+
+        return Response({
+            "code": 200,
+            "msg": "位置已上报",
+            "data": {"point_id": point.id}
+        })
+
+
+class InspectionBatchLocationUploadView(APIView):
+    """批量上报定位点（小程序端积累一批后一次性提交）"""
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = InspectionBatchLocationUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"code": 400, "msg": "参数错误", "errors": serializer.errors})
+
+        data = serializer.validated_data
+
+        try:
+            session = InspectionSession.objects.get(id=data['session_id'])
+        except InspectionSession.DoesNotExist:
+            return Response({"code": 400, "msg": "巡检会话不存在"})
+
+        if session.status != 'active':
+            return Response({"code": 400, "msg": "巡检会话已结束，无法上报位置"})
+
+        created_count = 0
+        for pt in data['points']:
+            try:
+                InspectionTrackPoint.objects.create(
+                    session=session,
+                    latitude=pt['latitude'],
+                    longitude=pt['longitude'],
+                    accuracy=pt.get('accuracy'),
+                    altitude=pt.get('altitude'),
+                    timestamp=pt.get('timestamp', datetime.now())
+                )
+                created_count += 1
+            except Exception:
+                continue
+
+        return Response({
+            "code": 200,
+            "msg": f"已上报 {created_count} 个定位点",
+            "data": {"count": created_count}
+        })
+
+
+class InspectionSessionListView(APIView):
+    """查询巡检会话列表"""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        admin_id = request.query_params.get('admin_id')
+        station_id = request.query_params.get('station_id')
+        status = request.query_params.get('status', '')
+
+        queryset = InspectionSession.objects.all()
+
+        if admin_id:
+            queryset = queryset.filter(admin_user_id=admin_id)
+        if station_id:
+            queryset = queryset.filter(station_id=station_id)
+        if status:
+            queryset = queryset.filter(status=status)
+
+        queryset = queryset.order_by('-start_time')
+        serializer = InspectionSessionListSerializer(queryset, many=True)
+        return Response({"code": 200, "data": serializer.data})
+
+
+class InspectionSessionDetailView(APIView):
+    """查询巡检会话详情（含完整轨迹点）"""
+    permission_classes = [AllowAny]
+
+    def get(self, request, session_id):
+        try:
+            session = InspectionSession.objects.get(id=session_id)
+        except InspectionSession.DoesNotExist:
+            return Response({"code": 400, "msg": "巡检会话不存在"})
+
+        serializer = InspectionSessionDetailSerializer(session)
+        return Response({"code": 200, "data": serializer.data})
+
+
+class InspectionSessionExportView(APIView):
+    """导出巡检轨迹为 Excel"""
+    permission_classes = [AllowAny]
+
+    def get(self, request, session_id):
+        try:
+            session = InspectionSession.objects.get(id=session_id)
+        except InspectionSession.DoesNotExist:
+            return Response({"code": 400, "msg": "巡检会话不存在"})
+
+        track_points = session.track_points.all()
+
+        # 创建工作簿
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "巡检轨迹"
+
+        # 表头信息
+        ws.append(["巡检轨迹报表"])
+        ws.append(["管理员", f"{session.admin_user.name or ''} ({session.admin_user.phone})"])
+        ws.append(["巡检局站", session.station.label if session.station else ""])
+        ws.append(["开始时间", session.start_time.strftime("%Y-%m-%d %H:%M:%S") if session.start_time else ""])
+        ws.append(["结束时间", session.end_time.strftime("%Y-%m-%d %H:%M:%S") if session.end_time else "进行中"])
+        ws.append(["轨迹点数", len(track_points)])
+        ws.append([])  # 空行
+
+        # 轨迹点表头
+        headers = ["序号", "纬度", "经度", "定位精度(m)", "海拔(m)", "定位时间"]
+        ws.append(headers)
+
+        # 写入轨迹点
+        for idx, pt in enumerate(track_points, 1):
+            ws.append([
+                idx,
+                pt.latitude,
+                pt.longitude,
+                pt.accuracy or "",
+                pt.altitude or "",
+                pt.timestamp.strftime("%Y-%m-%d %H:%M:%S") if pt.timestamp else "",
+            ])
+
+        # 列宽
+        col_widths = [8, 18, 18, 16, 14, 24]
+        for i, w in enumerate(col_widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = w
+
+        # 输出
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        station_name = session.station.label if session.station else "unknown"
+        filename = f"巡检轨迹_{station_name}_{timestamp}.xlsx"
+
+        response = HttpResponse(
+            output.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response['Pragma'] = 'no-cache'
+        response['Expires'] = '0'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        return response

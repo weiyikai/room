@@ -21,7 +21,13 @@ from rest_framework.routers import DefaultRouter
 
 from django.views.static import serve
 from django.conf import settings
-from roomInfo.views import RoomInfoView,RoomImageUploadView,RoomInfoSaveView
+from roomInfo.views import (
+    RoomInfoView, RoomImageUploadView, RoomInfoSaveView,
+    InspectionSessionStartView, InspectionSessionEndView,
+    InspectionLocationUploadView, InspectionBatchLocationUploadView,
+    InspectionSessionListView, InspectionSessionDetailView,
+    InspectionSessionExportView,
+)
 from login.views import RoomAdminLoginView,RoomAdminLogoutView,LogoutStatusView
 
 router = DefaultRouter()
@@ -47,6 +53,14 @@ urlpatterns = [
         path('room/info/save/', RoomInfoSaveView.as_view(), name='room-save'),
         # 新增：退出重置状态接口
         path("room/admin/logout/status/", LogoutStatusView.as_view(), name="logout-status"),
+        # ====================== 巡检轨迹管理接口 ======================
+        path("track/session/start/", InspectionSessionStartView.as_view(), name="track-session-start"),
+        path("track/session/end/", InspectionSessionEndView.as_view(), name="track-session-end"),
+        path("track/location/upload/", InspectionLocationUploadView.as_view(), name="track-location-upload"),
+        path("track/location/batch/", InspectionBatchLocationUploadView.as_view(), name="track-location-batch"),
+        path("track/sessions/", InspectionSessionListView.as_view(), name="track-session-list"),
+        path("track/session/<int:session_id>/", InspectionSessionDetailView.as_view(), name="track-session-detail"),
+        path("track/session/<int:session_id>/export/", InspectionSessionExportView.as_view(), name="track-session-export"),
     ])),
     #20260421 1403 新增：级联插件路由
     path('chaining/', include('smart_selects.urls')),

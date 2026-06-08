@@ -298,3 +298,110 @@ class RoomInfoAdmin(admin.ModelAdmin):
                                     ('ac_box_factory', 'ac_box_factory_img'),
                                     ('ac_box_count', 'ac_box_count_img'))}),
     )
+
+
+# ====================== 巡检轨迹管理 Admin ======================
+from .models import InspectionSession, InspectionTrackPoint
+
+
+def export_inspection_track_excel(modeladmin, request, queryset):
+    """导出选中的巡检轨迹为 Excel（含完整轨迹点）"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "巡检轨迹汇总"
+
+    # 表头
+    headers = [
+        "会话ID", "管理员", "手机号", "巡检局站", "开始时间",
+        "结束时间", "状态", "轨迹点数", "备注"
+    ]
+    ws.append(headers)
+
+    for session in queryset.order_by('-start_time'):
+        ws.append([
+            session.id,
+            session.admin_user.name or "",
+            session.admin_user.phone,
+            session.station.label if session.station else "",
+            session.start_time.strftime("%Y-%m-%d %H:%M:%S") if session.start_time else "",
+            session.end_time.strftime("%Y-%m-%d %H:%M:%S") if session.end_time else "",
+            session.get_status_display(),
+            session.track_points.count(),
+            session.notes or "",
+        ])
+
+    # 第二个sheet：轨迹点明细
+    ws2 = wb.create_sheet("轨迹点明细")
+    ws2.append(["会话ID", "管理员", "局站", "序号", "纬度", "经度", "精度(m)", "海拔(m)", "定位时间"])
+
+    for session in queryset.order_by('-start_time'):
+        for idx, pt in enumerate(session.track_points.all(), 1):
+            ws2.append([
+                session.id,
+                session.admin_user.name or session.admin_user.phone,
+                session.station.label if session.station else "",
+                idx,
+                pt.latitude,
+                pt.longitude,
+                pt.accuracy or "",
+                pt.altitude or "",
+                pt.timestamp.strftime("%Y-%m-%d %H:%M:%S") if pt.timestamp else "",
+            ])
+
+    # 列宽
+    for col in range(1, 10):
+        ws.column_dimensions[get_column_letter(col)].width = 22
+    for col in range(1, 10):
+        ws2.column_dimensions[get_column_letter(col)].width = 20
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+    filename = f"巡检轨迹报表_{timestamp}.xlsx"
+
+    response = HttpResponse(
+        output.read(),
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = '0'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+export_inspection_track_excel.short_description = "📊 导出巡检轨迹报表（含轨迹点明细）"
+
+
+@admin.register(InspectionSession)
+class InspectionSessionAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'admin_user', 'station', 'start_time', 'end_time',
+        'status', 'point_count', 'created_at'
+    ]
+    list_filter = ['status', 'station', 'start_time']
+    search_fields = ['admin_user__phone', 'admin_user__name', 'station__label']
+    ordering = ['-start_time']
+    actions = [export_inspection_track_excel]
+    readonly_fields = ['id', 'created_at']
+    date_hierarchy = 'start_time'
+
+    fieldsets = (
+        ("基础信息", {'fields': ('admin_user', 'station')}),
+        ("巡检时间", {'fields': ('start_time', 'end_time', 'status')}),
+        ("备注", {'fields': ('notes',)}),
+    )
+
+
+@admin.register(InspectionTrackPoint)
+class InspectionTrackPointAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'session', 'latitude', 'longitude',
+        'accuracy', 'altitude', 'timestamp'
+    ]
+    list_filter = ['session', 'timestamp']
+    search_fields = ['session__admin_user__phone', 'session__station__label']
+    ordering = ['session', 'timestamp']
+    readonly_fields = ['id', 'created_at']
